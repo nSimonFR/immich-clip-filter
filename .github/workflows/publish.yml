@@ -1,0 +1,83 @@
+# Publish the sidecar image to GHCR.
+#
+# This exists because the docs were writing cheques the repo could not cash:
+# docker/docker-compose.yml referenced ghcr.io/nsimonfr/immich-clip-filter:latest
+# and README's quickstart said `docker compose up -d immich-clip-filter`, but
+# nothing ever built or pushed that image — a reader following the documented
+# primary install path would have got a pull failure on the first command.
+#
+# Only on main, and only after the unit suite has passed, so `:latest` always
+# means "a build whose tests were green".
+name: Publish image
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/immich-clip-filter
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[test]"
+      - run: pytest tests/unit -q
+
+  publish:
+    name: build + push
+    needs: unit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # arm64 matters more than usual here: the natural home for this is the same
+      # small box that runs Immich, and a lot of those are a Pi.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: the image must actually run
+        # A pushed image that cannot start is worse than no image: the compose
+        # file would pull it and fail somewhere less obvious. `--help` exercises
+        # the entry point, the console script and the imports without needing an
+        # Immich to talk to.
+        run: |
+          docker run --rm --entrypoint immich-clip-doctor \
+            ${{ env.IMAGE }}:latest --help

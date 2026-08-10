@@ -44,6 +44,7 @@ numbers agree with Immich's own smart search because they are Immich's numbers.
 SIDECAR_URL=http://immich-clip-filter:8351/classify ./plugin/build.sh dist/plugins
 
 # 2. run the sidecar, and point Immich's plugin folder at dist/plugins
+#    (image: ghcr.io/nSimonFR/immich-clip-filter — amd64 + arm64)
 docker compose up -d immich-clip-filter
 docker compose run --rm immich-clip-filter immich-clip-doctor
 

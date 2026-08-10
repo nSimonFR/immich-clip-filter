@@ -19,8 +19,10 @@ services:
       - ./dist/plugins:/plugins:ro
 
   immich-clip-filter:
+    # Published from main by .github/workflows/publish.yml (amd64 + arm64) once
+    # the unit suite is green. If you are ahead of the first publish, or want your
+    # own build, swap the two lines below.
     image: ghcr.io/nsimonfr/immich-clip-filter:latest
-    # Or build it yourself:
     # build: { context: ., dockerfile: docker/Dockerfile }
     restart: always
     depends_on:
