@@ -138,10 +138,12 @@ mocking library and nothing reads the environment at import time.
 
 ## Status
 
-Extracted from a working private deployment. The implementation has run in
-production for months — four rules, two users, ~5,500 photos — and this repo is
-that code with the host-specific parts lifted out. [PLAN.md](./PLAN.md) records
-what that extraction involved and what is left.
+In production. Four rules, two users, ~5,500 photos, on Immich 3.1.0 — and this
+repo is what runs there, consumed as a flake input rather than vendored.
+
+Every constraint in [limitations.md](./docs/limitations.md) was measured on that
+library rather than inferred, which is the only reason the numbers in these docs
+are specific.
 
 ## Licence
 
