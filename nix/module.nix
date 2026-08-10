@@ -18,7 +18,6 @@ let
 
   sidecarUrl = "http://${cfg.listenAddress}:${toString cfg.port}/classify";
 
-  package = cfg.package or self.packages.${pkgs.system}.immich-clip-filter;
   plugin = pkgs.callPackage ../nix/plugin.nix {
     src = ../plugin;
     inherit sidecarUrl;
@@ -67,9 +66,17 @@ in
     enable = mkEnableOption "the CLIP content filter for Immich Workflows";
 
     package = mkOption {
-      type = types.nullOr types.package;
-      default = null;
-      description = "Override the sidecar package.";
+      type = types.package;
+      # This flake's own build, so a consumer gets the tested one by default.
+      # NOT `nullOr` with a null default and `cfg.package or …` as the fallback:
+      # Nix's `or` only catches a failed ATTRIBUTE LOOKUP, so a null default is
+      # simply null, and it coerces into the ExecStart string as the delightful
+      # `cannot coerce null to a string`. Caught by evaluating this against a real
+      # host config rather than by reading it.
+      default = self.packages.${pkgs.system}.immich-clip-filter;
+      defaultText =
+        lib.literalExpression "immich-clip-filter.packages.\${system}.immich-clip-filter";
+      description = "The sidecar package to run.";
     };
 
     user = mkOption {
@@ -214,7 +221,7 @@ in
       environment.IMMICH_CLIP_CONFIG = "${configFile}";
       serviceConfig = hardening // {
         User = cfg.user;
-        ExecStart = "${package}/bin/immich-clip-sidecar";
+        ExecStart = "${cfg.package}/bin/immich-clip-sidecar";
         Restart = "on-failure";
         RestartSec = 5;
         StateDirectory = baseNameOf cfg.stateDir;
@@ -234,7 +241,7 @@ in
       serviceConfig = hardening // {
         Type = "oneshot";
         User = cfg.user;
-        ExecStart = "${package}/bin/immich-clip-drain";
+        ExecStart = "${cfg.package}/bin/immich-clip-drain";
         StateDirectory = baseNameOf cfg.stateDir;
         StateDirectoryMode = "0750";
       };
@@ -252,7 +259,7 @@ in
     };
 
     # `sudo -u immich immich-clip-backfill --seed-album "Food" --album Food`
-    environment.systemPackages = [ package ];
+    environment.systemPackages = [ cfg.package ];
 
     # The sidecar's StateDirectory creates this, but the by-hand tools may run
     # before the service ever has.
