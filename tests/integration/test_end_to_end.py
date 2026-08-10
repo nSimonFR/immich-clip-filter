@@ -13,6 +13,7 @@ distances are exact and every threshold in this file is a number the test chose.
 import json
 import os
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -30,18 +31,42 @@ EAST = [1.0, 0.0]
 
 
 @pytest.fixture
-def seeds(admin, image, embed):
+def unique():
+    """A per-test suffix for album names.
+
+    ⚠️ Album names MUST be unique per test. These fixtures are function-scoped
+    and the tests share one Immich for the whole session, so a fixed name meant
+    every test added another album called "IT seeds" — and `album_id_by_name`
+    then refused the ambiguity, exactly as designed:
+
+        AlbumError: 9 albums are named 'IT seeds' — rename one
+
+    which surfaced as `KeyError: 'distance'` in eleven unrelated assertions,
+    because the verdict had become a fail-closed no. The suite was testing its
+    own fixture collision, not the product.
+    """
+    return uuid.uuid4().hex[:8]
+
+
+@pytest.fixture
+def seeds(admin, image, embed, unique):
     """A seed album of two photos that both point NORTH."""
     ids = [admin.upload(image("seed")) for _ in range(2)]
     for asset_id in ids:
         embed(asset_id, NORTH)
-    album_id = admin.create_album("IT seeds", ids)
-    return {"album": "IT seeds", "albumId": album_id, "assetIds": ids}
+    name = f"IT seeds {unique}"
+    album_id = admin.create_album(name, ids)
+    return {"album": name, "albumId": album_id, "assetIds": ids}
 
 
 @pytest.fixture
-def target(admin):
-    return admin.create_album("IT target")
+def target_name(unique):
+    return f"IT target {unique}"
+
+
+@pytest.fixture
+def target(admin, target_name):
+    return admin.create_album(target_name)
 
 
 def a_request(asset_id, album_id, seed_album, threshold=0.1, wait=0):
@@ -224,7 +249,7 @@ def test_a_photo_taken_out_by_hand_is_not_refiled_by_the_live_path(
 
 
 def test_a_removal_also_survives_the_full_backfill_sweep(
-        admin, image, embed, seeds, target, sidecar, settings_for, cur):
+        admin, image, embed, seeds, target, target_name, sidecar, settings_for, cur):
     # The sweep excludes only CURRENT members, so without the exclusion table a
     # removed match is simply a fresh candidate again.
     asset = admin.upload(image("swept"))
@@ -235,7 +260,7 @@ def test_a_removal_also_survives_the_full_backfill_sweep(
     admin.remove_from_album(target, [asset])
 
     args = backfill.parse_args([
-        "--seed-album", seeds["album"], "--album", "IT target",
+        "--seed-album", seeds["album"], "--album", target_name,
         "--threshold", "0.1", "--apply"])
     backfill.run(cfg, args)
 
@@ -267,7 +292,7 @@ def test_re_adding_a_photo_by_hand_forgets_the_exclusion(
 
 # ── 8. two rules, one asset, decided independently ───────────────────────────
 def test_two_rules_watching_the_same_library_do_not_clobber_each_other(
-        admin, image, embed, unembed, seeds, target, sidecar, settings_for):
+        admin, image, embed, unembed, seeds, target, sidecar, settings_for, unique):
     """Both park the same undecidable asset; neither may lose its verdict.
 
     Under the original assetId-only primary key the second enqueue silently
@@ -275,21 +300,22 @@ def test_two_rules_watching_the_same_library_do_not_clobber_each_other(
     """
     other_ids = [admin.upload(image("otherseed"))]
     embed(other_ids[0], EAST)
-    admin.create_album("IT seeds east", other_ids)
-    second_target = admin.create_album("IT target east")
+    east = f"IT seeds east {unique}"
+    admin.create_album(east, other_ids)
+    second_target = admin.create_album(f"IT target east {unique}")
 
     asset = admin.upload(image("both"))
     unembed(asset)
     cfg = settings_for()
 
     sidecar(a_request(asset, target, seeds["album"], wait=1), cfg=cfg)
-    sidecar(a_request(asset, second_target, "IT seeds east", wait=1), cfg=cfg)
+    sidecar(a_request(asset, second_target, east, wait=1), cfg=cfg)
 
     conn = queue.connect(cfg.queue_db)
     try:
         parked = {r["profile"]: r for r in queue.pending(conn)}
-        assert set(parked) == {"album:IT seeds", "album:IT seeds east"}
-        assert parked["album:IT seeds east"]["albumIds"] == [second_target]
+        assert set(parked) == {f"album:{seeds['album']}", f"album:{east}"}
+        assert parked[f"album:{east}"]["albumIds"] == [second_target]
     finally:
         conn.close()
 
@@ -315,8 +341,8 @@ def test_a_key_cannot_file_another_users_photo_and_says_which_user(
 
 
 def test_with_that_users_key_configured_their_photo_files_into_their_album(
-        admin, second_user, image, embed, seeds, sidecar, settings_for, cur):
-    their_target = second_user.create_album("IT target theirs")
+        admin, second_user, image, embed, seeds, sidecar, settings_for, cur, unique):
+    their_target = second_user.create_album(f"IT target theirs {unique}")
     asset = second_user.upload(image("theirs-ok"))
     embed(asset, NORTH)
     both = settings_for(keys=(
