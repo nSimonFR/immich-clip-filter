@@ -31,9 +31,38 @@ role** is a good idea and works.
 
 | Immich | status | notes |
 |---|---|---|
-| 3.1.x | tested in production | the reference deployment; every quirk below measured here |
-| 1.144.x | CI | what the integration harness pins |
-| < 3.0 | unsupported | no Workflows engine, so there is no step to add |
+| **3.1.0** | tested in production, **and the contract suite runs green against it** | the reference deployment; every quirk below was measured here |
+| 3.0.x | expected to work, untested | same major, same Workflows engine |
+| < 3.0 | **unsupported** | no Workflows engine — there is no step to add |
+
+The integration harness pins `v3.1.0` and the images upstream's own compose pairs
+with it (`valkey:9`, `ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0`).
+
+### What the contract suite actually checks
+
+36 tests, in two halves — run them against your own database before upgrading:
+
+```bash
+IMMICH_CLIP_CONTRACT_DSN=postgresql://immich@/immich \
+IMMICH_CLIP_CONTRACT_URL=http://127.0.0.1:2283 \
+IMMICH_CLIP_CONTRACT_KEY=... pytest tests/contract -v
+```
+
+**The schema half** asserts every table and column the SQL touches, that pgvector
+still answers `<=>` and `AVG(vector)`, that the backfill scan still plans as a Seq
+Scan rather than reaching for the ANN index, that an embedding still comes back as
+a text literal, and that `smart_search.embedding` is still a fixed-width
+`vector(N)` — which is what the integration harness has to pad its synthetic
+vectors to.
+
+**The API half** probes all thirteen endpoints this project and its harness drive.
+It distinguishes a missing *route* from a missing *resource* (NestJS answers an
+unrouted request with `Cannot GET /api/…`), so every probe sends an empty body and
+nothing is created, modified or deleted.
+
+Both halves include a test that deliberately asks for something that cannot exist,
+so a suite that passed vacuously would fail — a guard that never fires is worse
+than no guard.
 
 ## Upstream quirks that shape the design
 

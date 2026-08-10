@@ -10,14 +10,19 @@
 #   IMMICH_CLIP_IT_DSN=postgresql://postgres:postgres@127.0.0.1:5433/immich \
 #     pytest tests/integration -v
 #
-# The image tags are pinned, not `:release`. A floating tag would turn "Immich
-# changed something" into "CI is flaky", which is the opposite of what this suite
-# is for — see docs/limitations.md for the compatibility matrix.
+# The tags are pinned, not `:release`. A floating tag would turn "Immich changed
+# something" into "CI is flaky", which is the opposite of what this suite is for —
+# see docs/limitations.md for the compatibility matrix.
+#
+# They are also taken from upstream's own compose for the pinned release rather
+# than guessed: v3.1.0 pairs with valkey 9 and that exact postgres image, and
+# Workflows do not exist at all before 3.0, so there is no such thing as testing
+# this against a 1.x server.
 name: immich-clip-filter-it
 
 services:
   immich-server:
-    image: ghcr.io/immich-app/immich-server:v1.144.1
+    image: ghcr.io/immich-app/immich-server:v3.1.0
     environment:
       DB_HOSTNAME: database
       DB_USERNAME: postgres
@@ -42,13 +47,14 @@ services:
       redis:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2283/api/server/ping || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 60
+      # The image ships its own; upstream's compose just switches it on. Writing
+      # one here meant guessing which of wget/curl the container has — it is not
+      # a debian-slim, and a healthcheck that always fails means `--wait` hangs
+      # for the full timeout and then reports something unrelated.
+      disable: false
 
   redis:
-    image: docker.io/valkey/valkey:8-bookworm
+    image: docker.io/valkey/valkey:9
 
   database:
     # Immich's own image: stock Postgres has neither pgvector nor vectorchord,

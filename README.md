@@ -110,16 +110,25 @@ catches an upgrade before it costs you an album. See
 
 ```bash
 pip install -e ".[test]"
-pytest tests/unit                 # ~170 tests, no network, no database, under a second
+pytest tests/unit                 # 169 tests, no network, no database, under a second
 ```
 
 Three layers:
 
-| suite | needs | what it is for |
-|---|---|---|
-| `tests/unit` | nothing | the logic, and every failure branch |
-| `tests/contract` | a real Immich Postgres | is the schema still the shape the SQL assumes |
-| `tests/integration` | a real Immich (compose) | the assumptions, end to end — see its [README](./tests/integration/README.md) |
+| suite | count | needs | what it is for |
+|---|---|---|---|
+| `tests/unit` | 169 | nothing | the logic, and every failure branch |
+| `tests/contract` | 36 | a real Immich | is Immich still the shape this assumes — schema *and* routes. Green against 3.1.0 |
+| `tests/integration` | 15 | a real Immich (compose) | the assumptions, end to end — see its [README](./tests/integration/README.md) |
+
+Run the contract suite against your own Immich before upgrading it — that is what
+it is for:
+
+```bash
+IMMICH_CLIP_CONTRACT_DSN=postgresql://immich@/immich \
+IMMICH_CLIP_CONTRACT_URL=http://127.0.0.1:2283 \
+IMMICH_CLIP_CONTRACT_KEY=... pytest tests/contract -v
+```
 
 Every function that does I/O takes the doer as a parameter (`connect=`,
 `opener=`, `log=`, `sleep=`, `now=`), which is why the unit suite needs no

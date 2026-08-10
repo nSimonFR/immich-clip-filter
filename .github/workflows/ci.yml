@@ -78,13 +78,33 @@ jobs:
           IMMICH_CLIP_IT_URL: http://127.0.0.1:2283
           IMMICH_CLIP_IT_DSN: postgresql://postgres:postgres@127.0.0.1:5433/immich
         run: pytest tests/integration -v
-      - name: contract tests against the same database
-        # Same Immich, different question: not "does the feature work" but "is the
-        # schema still the shape the SQL assumes". Runs even when the suite above
-        # fails, because a schema break explains the failure.
+      - name: mint a key for the contract suite
+        # The contract suite takes a key rather than bootstrapping one, so that it
+        # can be pointed at somebody's real Immich. In CI there is nobody to ask,
+        # so the harness's own client does the signup — reused, not reimplemented.
+        if: always()
+        env:
+          IMMICH_CLIP_IT_URL: http://127.0.0.1:2283
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import os, sys
+          sys.path.insert(0, "tests/integration")
+          from immich_client import Immich
+          c = Immich(os.environ["IMMICH_CLIP_IT_URL"])
+          c.wait_until_up()
+          c.admin_signup("admin@integration.test", "integration-password")
+          c.login("admin@integration.test", "integration-password")
+          print(f"IMMICH_CLIP_CONTRACT_KEY={c.create_api_key('contract')}")
+          PY
+
+      - name: contract tests against the same Immich
+        # Same server, different question: not "does the feature work" but "is
+        # Immich still the shape this project assumes" — schema AND routes. Runs
+        # even when the suite above fails, because a break here explains it.
         if: always()
         env:
           IMMICH_CLIP_CONTRACT_DSN: postgresql://postgres:postgres@127.0.0.1:5433/immich
+          IMMICH_CLIP_CONTRACT_URL: http://127.0.0.1:2283
         run: pytest tests/contract -v
       - name: immich logs
         if: failure()

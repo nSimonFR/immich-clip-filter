@@ -116,16 +116,50 @@ def image(tmp_path):
     return make
 
 
+@pytest.fixture(scope="session")
+def embedding_dim(db):
+    """How wide `smart_search.embedding` is on THIS Immich.
+
+    ⚠️ The column is `vector(N)`, not a free-dimension `vector` — so an insert of
+    the wrong width fails outright with a dimension mismatch. N depends on the
+    configured CLIP model (512 for a ViT-B, 1024 for a ViT-H), which is why it is
+    discovered rather than hardcoded.
+
+    Read from `atttypmod`, which pgvector stores as the dimension directly, rather
+    than from an existing row — a freshly-migrated CI database has none.
+    """
+    cur = db.cursor()
+    try:
+        cur.execute(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'smart_search'::regclass AND attname = 'embedding'"
+        )
+        row = cur.fetchone()
+        assert row and row[0] > 0, "could not read smart_search.embedding's dimension"
+        return row[0]
+    finally:
+        cur.close()
+
+
 @pytest.fixture
-def embed(cur):
+def embed(cur, embedding_dim):
     """Give an asset an exact embedding — the trick that removes the ML server.
 
     Immich creates the `smart_search` row only when its own job runs, so this both
-    inserts and updates. Vectors are unit-length 2-D, so cosine distance between
-    two of them is a number the test picked.
+    inserts and updates.
+
+    Tests pass 2-D unit vectors because two dimensions are enough to place a photo
+    anywhere on a circle and the arithmetic stays readable. They are then **padded
+    with zeros** to the column's real width: the extra components contribute
+    nothing to either the dot product or the norms, so the cosine distance between
+    two padded vectors is exactly the distance between the originals. Verified on
+    a live 1024-wide column — NORTH vs EAST is 1.0, NORTH vs NORTH is 0.0.
     """
     def set_vector(asset_id, vector):
-        literal = "[" + ",".join(repr(float(x)) for x in vector) + "]"
+        padded = list(vector) + [0.0] * (embedding_dim - len(vector))
+        assert len(padded) == embedding_dim, (
+            f"vector of {len(vector)} does not fit a vector({embedding_dim}) column")
+        literal = "[" + ",".join(repr(float(x)) for x in padded) + "]"
         cur.execute(
             'INSERT INTO smart_search ("assetId", embedding) VALUES (%s, %s::vector) '
             'ON CONFLICT ("assetId") DO UPDATE SET embedding = EXCLUDED.embedding',

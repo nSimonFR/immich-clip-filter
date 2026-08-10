@@ -152,6 +152,50 @@ def test_the_nearest_seed_of_a_set_including_the_asset_itself_is_zero(cur):
     assert store.nearest_seed_distance(cur, ids[0], ids) == pytest.approx(0.0, abs=1e-6)
 
 
+def test_the_embedding_column_is_fixed_width_and_says_how_wide(cur):
+    """The integration harness inserts its own vectors, so this decides its shape.
+
+    `smart_search.embedding` is `vector(N)`, not a free-dimension `vector`: an
+    insert of the wrong width fails outright. N follows the configured CLIP model
+    (512 for a ViT-B, 1024 for a ViT-H), so the harness discovers it from
+    `atttypmod` — which pgvector stores as the dimension directly — rather than
+    from a row, since a freshly-migrated database has none.
+    """
+    cur.execute(
+        "SELECT atttypmod FROM pg_attribute "
+        "WHERE attrelid = 'smart_search'::regclass AND attname = 'embedding'"
+    )
+    dim = cur.fetchone()[0]
+    assert dim > 0, "embedding is not a fixed-width vector — the harness assumes it is"
+
+    cur.execute('SELECT vector_dims(embedding) FROM smart_search LIMIT 1')
+    row = cur.fetchone()
+    if row is not None:
+        assert row[0] == dim, "atttypmod disagrees with the stored vectors"
+
+
+def test_zero_padding_a_short_vector_preserves_the_cosine_distance(cur):
+    """Why the harness can reason in two dimensions against a 1024-wide column.
+
+    The padding contributes nothing to either the dot product or the norms, so the
+    distance between two padded vectors is exactly the distance between the
+    originals. If that ever stopped holding, every threshold in the integration
+    suite would be quietly wrong rather than obviously broken.
+    """
+    cur.execute(
+        "SELECT atttypmod FROM pg_attribute "
+        "WHERE attrelid = 'smart_search'::regclass AND attname = 'embedding'"
+    )
+    dim = cur.fetchone()[0]
+    pad = ",".join(["0"] * (dim - 2))
+    north, east = f"[0,1,{pad}]", f"[1,0,{pad}]"
+    cur.execute("SELECT %s::vector <=> %s::vector, %s::vector <=> %s::vector",
+                (north, east, north, north))
+    orthogonal, identical = cur.fetchone()
+    assert float(orthogonal) == pytest.approx(1.0, abs=1e-6)
+    assert float(identical) == pytest.approx(0.0, abs=1e-6)
+
+
 def test_an_unembedded_asset_scores_none_rather_than_raising(cur):
     # This is the whole three-outcome design: "no embedding yet" has to be
     # distinguishable from "too far away".

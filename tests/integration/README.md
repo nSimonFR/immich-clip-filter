@@ -22,6 +22,14 @@ are sort of similar" into arithmetic: `NORTH` vs `EAST` is *exactly* 1.0, `NORTH
 vs `NORTHEAST` is *exactly* 0.2929. Every threshold in the suite is a number the
 test chose, so nothing is approximately asserted and nothing is flaky.
 
+> ⚠️ `smart_search.embedding` is `vector(N)`, **not** a free-dimension `vector` —
+> an insert of the wrong width fails outright, and N follows the configured CLIP
+> model (512 for a ViT-B, 1024 for a ViT-H). So the `embed` fixture discovers N
+> from `atttypmod` and zero-pads. The padding contributes nothing to the dot
+> product or the norms, so the distance between two padded vectors is exactly the
+> distance between the originals — verified against a live 1024-wide column, and
+> pinned by a contract test.
+
 ## Running them
 
 ```bash
