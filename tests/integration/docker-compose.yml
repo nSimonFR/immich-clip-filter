@@ -1,0 +1,73 @@
+# The CI harness: a real Immich, a real Postgres, and nothing else.
+#
+# **No machine-learning container.** That is what makes this suite possible at
+# all — inference needs a GPU that CI does not have. The sidecar only ever READS
+# `smart_search`, so the tests insert the embeddings themselves and assert exact
+# distances instead of "roughly similar". See tests/integration/conftest.py.
+#
+#   docker compose -f tests/integration/docker-compose.yml up -d
+#   IMMICH_CLIP_IT_URL=http://127.0.0.1:2283 \
+#   IMMICH_CLIP_IT_DSN=postgresql://postgres:postgres@127.0.0.1:5433/immich \
+#     pytest tests/integration -v
+#
+# The image tags are pinned, not `:release`. A floating tag would turn "Immich
+# changed something" into "CI is flaky", which is the opposite of what this suite
+# is for — see docs/limitations.md for the compatibility matrix.
+name: immich-clip-filter-it
+
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v1.144.1
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      # No ML server, and Immich must not wait for one.
+      IMMICH_MACHINE_LEARNING_ENABLED: "false"
+      IMMICH_ALLOW_EXTERNAL_PLUGINS: "true"
+      IMMICH_PLUGINS_INSTALL_FOLDER: /plugins
+      IMMICH_LOG_LEVEL: warn
+    volumes:
+      - upload:/data
+      # Populated by `plugin/build.sh dist/plugins` when the wasm toolchain is
+      # available; an empty folder is fine and simply means no plugin is loaded.
+      - ../../dist/plugins:/plugins:ro
+    ports:
+      - "2283:2283"
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2283/api/server/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  redis:
+    image: docker.io/valkey/valkey:8-bookworm
+
+  database:
+    # Immich's own image: stock Postgres has neither pgvector nor vectorchord,
+    # and the whole project is `embedding <=> embedding`.
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: --data-checksums
+    # Exposed so the tests can insert embeddings and read `album_asset` directly
+    # — 5433 to stay clear of a Postgres already running on the host.
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d immich"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  upload:

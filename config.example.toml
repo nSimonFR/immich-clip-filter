@@ -1,0 +1,84 @@
+# immich-clip-filter — every value, with its default.
+#
+# Nothing here is required: each setting has a default and an environment
+# override, so a `docker run -e ...` deployment needs no file at all. Put this at
+# /etc/immich-clip/config.toml, or point $IMMICH_CLIP_CONFIG at it.
+#
+# Precedence, highest first: environment variable, this file, built-in default.
+
+[immich]
+# Where Immich answers. From a container, that is the service name.
+url = "http://127.0.0.1:2283"
+
+# The database. A libpq DSN — Immich's own Postgres, read-only as far as this
+# project is concerned (a read-only role is a good idea, and works).
+#
+# Leave it out entirely when Immich is on this host: with no DSN and no db_host,
+# psycopg2 uses the unix socket and Postgres applies `local all all peer`, so
+# running as the `immich` user needs no password and no new role.
+# db_url = "postgresql://immich:password@database:5432/immich"
+
+# The CLIP model. Leave empty and the tools ask Immich, which is the right
+# answer — a centroid built against one model is meaningless under another, and
+# deriving the name from the server that will be compared against removes any
+# chance of the two drifting apart.
+# clip_model = ""
+
+# The machine-learning server. Also asked of Immich when empty. Only the
+# `--text` profile mode and the drainer's health probe use it.
+# ml_url = ""
+
+# ── API keys ─────────────────────────────────────────────────────────────────
+# The single-user shorthand. Either form; the _file form is what every secret
+# manager gives you.
+api_key = "paste-an-immich-api-key-here"
+# api_key_file = "/run/secrets/immich_api_key"
+
+# For a SHARED library, list a key per owner instead.
+#
+# A key can only put its own owner's photos into its own owner's album, and a
+# workflow is always owned by whoever created it. With one key, a second user's
+# photos match the rule and then file nothing — Immich answers `no_permission`
+# per id, which shows up as a counter and not as an error.
+#
+# Each user has to mint their own key (Account Settings -> API Keys); an admin
+# cannot do it for them. `owner` is their Immich email, or `*` for the fallback.
+#
+# [[immich.keys]]
+# owner = "nico@example.com"
+# key_file = "/run/secrets/nico_immich_key"
+#
+# [[immich.keys]]
+# owner = "alfie@example.com"
+# key_file = "/run/secrets/alfie_immich_key"
+
+[sidecar]
+# Loopback by default. In a container this must be 0.0.0.0, because the plugin
+# reaches it over the compose network — the image sets that for you.
+listen = "127.0.0.1:8351"
+
+# Profiles and the pending queue. One setting moves all of it.
+state_dir = "/var/lib/immich-clip"
+
+# Server-side ceiling on what a workflow step may ask to wait for. Waiting only
+# helps while a SmartSearch job is actually in flight; when the ML server is down
+# no amount of waiting helps, and a long wait pins a workflow-queue slot.
+max_wait = "15s"
+
+# Refuse to start if Immich's schema is not the shape the SQL expects. Leave it
+# on: failing at startup with a named column beats failing per asset, months
+# later, as photos quietly stop being filed.
+check_schema = true
+
+[drain]
+# How often to ask Immich to embed what it never retried. Rate-limited because
+# the job queues every unembedded asset in the library, not just ours.
+requeue_every = "1h"
+
+# Give up on a verdict that has waited this long — a deleted original, or a
+# format the ML server rejects, would otherwise sit in the queue forever.
+max_age_days = 30
+
+# SAFE default: false. The drainer reports and writes nothing until this is on.
+# The systemd unit and the compose service are where that is opted out of.
+apply = false

@@ -1,0 +1,74 @@
+# Add these two services to the Immich compose file you already have.
+#
+# Nothing about Immich's own services changes except the four lines under
+# `immich-server` marked below — the plugin folder and the flag that lets Immich
+# load external plugins at all.
+#
+#   docker compose up -d immich-clip-filter
+#   docker compose run --rm immich-clip-filter immich-clip-doctor
+#
+# See docs/install.md for the full walkthrough.
+services:
+  immich-server:
+    environment:
+      # ── add to your existing immich-server ──────────────────────────────────
+      IMMICH_ALLOW_EXTERNAL_PLUGINS: "true"
+      IMMICH_PLUGINS_INSTALL_FOLDER: /plugins
+    volumes:
+      # Read-only: Immich only ever reads the manifest and the wasm.
+      - ./dist/plugins:/plugins:ro
+
+  immich-clip-filter:
+    image: ghcr.io/nsimonfr/immich-clip-filter:latest
+    # Or build it yourself:
+    # build: { context: ., dockerfile: docker/Dockerfile }
+    restart: always
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      # Service names, not 127.0.0.1 — the sidecar and Immich are different
+      # containers. The same applies to the plugin's SIDECAR_URL at build time,
+      # and to the manifest's allowedHosts it derives from that.
+      IMMICH_URL: http://immich-server:2283
+      IMMICH_DB_URL: postgresql://${DB_USERNAME}:${DB_PASSWORD}@database:5432/${DB_DATABASE_NAME}
+      # One key: the shorthand. For a shared library see [[immich.keys]] in
+      # docs/install.md — one key can only file its own owner's photos.
+      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      # Off by default so a misconfigured deployment cannot write. The drainer is
+      # the only thing this gates.
+      IMMICH_CLIP_DRAIN_APPLY: "true"
+    secrets:
+      - immich_api_key
+    volumes:
+      - immich-clip-state:/var/lib/immich-clip
+
+  # The deferred half. Immich never re-queues missing CLIP embeddings on its own,
+  # so without this a photo uploaded while the ML server was down waits forever.
+  # A container cannot hold a cron, so this is a loop with a sleep; if you already
+  # run a scheduler, drop this service and call `immich-clip-drain` from it.
+  immich-clip-drain:
+    image: ghcr.io/nsimonfr/immich-clip-filter:latest
+    restart: always
+    depends_on: [immich-clip-filter]
+    environment:
+      IMMICH_URL: http://immich-server:2283
+      IMMICH_DB_URL: postgresql://${DB_USERNAME}:${DB_PASSWORD}@database:5432/${DB_DATABASE_NAME}
+      IMMICH_API_KEY_FILE: /run/secrets/immich_api_key
+      IMMICH_CLIP_DRAIN_APPLY: "true"
+    secrets:
+      - immich_api_key
+    volumes:
+      - immich-clip-state:/var/lib/immich-clip
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while true; do immich-clip-drain; sleep 900; done"]
+
+secrets:
+  immich_api_key:
+    file: ./immich-api-key.txt
+
+volumes:
+  # Shared between the two services on purpose: the sidecar writes the pending
+  # queue and the drainer reads it. Two volumes here is the classic way to get a
+  # drainer that reports "queue empty" forever.
+  immich-clip-state:

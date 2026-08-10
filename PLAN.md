@@ -3,10 +3,13 @@
 Plan to lift the working implementation out of [nic-os] into a standalone,
 documented, testable project that a stranger with an Immich instance can install.
 
-**Status:** the code exists and runs in production on one host (four rules, two
-users, ~5.5k photos). Nothing here is speculative design — every constraint below
-was hit and measured while building it. This plan is about *decoupling*, *proving*
-and *documenting*, not about discovering whether it works.
+**Status: phases 0–4 are done.** The code is lifted, the configuration model
+exists, the docs are written, per-owner keys work, and there are three test
+layers. Phase 5 — nic-os consuming this as a flake input and deleting its in-tree
+copies — is the remainder, and is tracked at the bottom.
+
+Nothing here was speculative design: every constraint below was hit and measured
+on a live library of ~5,500 photos before this plan was written.
 
 ---
 
@@ -196,14 +199,57 @@ be created by them (or inserted directly), which the docs must state plainly.
 
 ## 7. Phasing
 
-| phase | outcome | rough size |
+| phase | outcome | status |
 |---|---|---|
-| 0 | repo skeleton, licence, CI, this plan | done |
-| 1 | code lifted, all paths/creds injectable, unit tests green | ~1 day |
-| 2 | docker-compose harness + the §4.2 matrix | ~2 days |
-| 3 | docs | ~1 day |
-| 4 | per-owner keys (fixes Alfie) | ~half day |
-| 5 | nic-os consumes it as a flake input; in-tree copies deleted | ~half day |
+| 0 | repo skeleton, licence, CI, this plan | ✅ done |
+| 1 | code lifted, all paths/creds injectable, unit tests green | ✅ done — one `Settings` replaces four `Config` classes; 167 unit tests pass |
+| 2 | docker-compose harness + the §4.2 matrix | ✅ done — 15 integration cases + 16 contract tests. The contract layer has been **run against a live Immich 3.1 database, all green**; the compose harness has not been executed (no container runtime on the machine it was written on) and runs in CI |
+| 3 | docs | ✅ done — the six documents in §5, plus `config.example.toml` |
+| 4 | per-owner keys (fixes the multi-user gap) | ✅ done — `[[immich.keys]]`, owner resolved per asset, unkeyed owners named rather than silently returning zero |
+| 5 | nic-os consumes it as a flake input; in-tree copies deleted | **remaining** — see below |
+
+### What changed against the plan as written
+
+Three things are worth recording, because they are places the shipped code
+disagrees with the sketch above:
+
+1. **A single `Settings`, not one `Config` per entry point.** The four dataclasses
+   overlapped almost entirely, and keeping four `from_env` readers in step across
+   a repo split was the likeliest way to grow a divergence nobody would notice.
+2. **`immich-clip-doctor` was not in the plan.** It earned its place while writing
+   §4: nearly every failure this project has is *invisible from the Immich UI* —
+   a rule that matches and files nothing looks exactly like a rule that never
+   matched. One command that reports all of them is worth more than another test.
+3. **`key_for` refuses to substitute another user's key.** The first cut fell back
+   to "the only key when exactly one is configured", which would file a stranger's
+   photo into the wrong person's library. A named owner now resolves to their own
+   key or to an explicit `*`, and to nothing else.
+
+### Phase 5, in detail
+
+Not started, and deliberately: nic-os PR #497 is still open, so its in-tree copy
+is the live implementation and deleting it now would strand a running deployment.
+The order is:
+
+1. merge nic-os #497 (the in-tree version, already deployed and verified);
+2. add this repo as a flake input, exactly as `sure-nix` / `airtrail-nix` /
+   `ryot-nix` are consumed;
+3. replace `hosts/rpi5/immich-clip.nix` with a call to `nixosModules.default`,
+   keeping only the host's configuration (agenix key paths, the port, the
+   drain interval);
+4. delete `hosts/rpi5/scripts/lib/nicos_scripts/immich/`,
+   `hosts/rpi5/immich-clip/`, `pkgs/services/immich-clip-plugin.nix` and the two
+   in-tree test files;
+5. rebuild, and check `immich-clip-doctor` plus one live trigger before removing
+   anything else.
+
+The state directory carries over untouched: same paths, same SQLite schema, same
+profile format. The queue's `excluded` table in particular must survive, since it
+is the record of every hand-removal.
+
+Also worth doing at that point, and cheap: make the repo **public**. It is private
+today because publishing is hard to undo, but nic-os consumes its other flake
+inputs from public repos, and a private input needs credentials at every eval.
 
 Phase 5 mirrors how nic-os already consumes `sure-nix`, `airtrail-nix`,
 `ryot-nix` — a flake input plus a thin NixOS module holding only configuration.

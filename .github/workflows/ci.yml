@@ -1,0 +1,94 @@
+# Three layers, cheapest first, because the expensive one only earns its runtime
+# when the cheap one is green.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The contract job is the early warning for an Immich schema change. Nothing
+  # here pushes, so a weekly run is free and catches an upstream break before the
+  # next person upgrades.
+  schedule:
+    - cron: "17 6 * * 1"
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[test]"
+      # No database, no network, no container. If this ever needs one, a seam has
+      # gone missing.
+      - run: pytest tests/unit -q
+
+  plugin:
+    name: plugin builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install extism-js
+        run: |
+          curl -L -o /tmp/install.sh \
+            https://raw.githubusercontent.com/extism/js-pdk/main/install.sh
+          bash /tmp/install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: ./plugin/build.sh dist/plugins
+      - name: the manifest must move with the sources
+        # The trap that costs an afternoon: Immich keys the plugin import on the
+        # SHA-256 of manifest.json's CONTENTS, so a rebuilt wasm under an
+        # unchanged manifest is silently ignored.
+        run: |
+          python3 -c "
+          import json,pathlib
+          m = json.loads(pathlib.Path('dist/plugins/clip-filter/manifest.json').read_text())
+          assert 'build ' in m['description'], m['description']
+          print('manifest carries a build id:', m['description'].rsplit('build ',1)[1])
+          "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin
+          path: dist/plugins
+
+  integration:
+    name: integration (real Immich)
+    runs-on: ubuntu-latest
+    needs: [unit, plugin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin
+          path: dist/plugins
+      - run: pip install -e ".[integration]"
+      - name: bring up Immich
+        run: docker compose -f tests/integration/docker-compose.yml up -d --wait
+      - name: run the suite
+        env:
+          IMMICH_CLIP_IT_URL: http://127.0.0.1:2283
+          IMMICH_CLIP_IT_DSN: postgresql://postgres:postgres@127.0.0.1:5433/immich
+        run: pytest tests/integration -v
+      - name: contract tests against the same database
+        # Same Immich, different question: not "does the feature work" but "is the
+        # schema still the shape the SQL assumes". Runs even when the suite above
+        # fails, because a schema break explains the failure.
+        if: always()
+        env:
+          IMMICH_CLIP_CONTRACT_DSN: postgresql://postgres:postgres@127.0.0.1:5433/immich
+        run: pytest tests/contract -v
+      - name: immich logs
+        if: failure()
+        run: docker compose -f tests/integration/docker-compose.yml logs --no-color immich-server
+      - name: tear down
+        if: always()
+        run: docker compose -f tests/integration/docker-compose.yml down -v

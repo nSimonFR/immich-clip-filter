@@ -1,0 +1,49 @@
+[build-system]
+requires = [ "setuptools>=68" ]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "immich-clip-filter"
+version = "1.0.0"
+description = "Content-based auto-filing for Immich: a CLIP filter step for Workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [ { name = "nSimonFR" } ]
+keywords = [ "immich", "clip", "photos", "workflow", "plugin" ]
+
+# Near-stdlib on purpose. This runs as a sidecar next to a photo server, often on
+# small hardware, and every added dependency is another thing that can fail to
+# build on arm64 at 3am. psycopg2 is the only one, and it is imported lazily
+# inside connect_pg() so the modules — and the entire unit suite — load without it.
+dependencies = [ "psycopg2-binary>=2.9" ]
+
+[project.optional-dependencies]
+test = [ "pytest>=7" ]
+# Only the integration suite needs to talk to a real Immich.
+integration = [ "pytest>=7", "psycopg2-binary>=2.9" ]
+
+[project.urls]
+Homepage = "https://github.com/nSimonFR/immich-clip-filter"
+Issues = "https://github.com/nSimonFR/immich-clip-filter/issues"
+
+[project.scripts]
+immich-clip-filter = "immich_clip.sidecar:main"
+immich-clip-sidecar = "immich_clip.sidecar:main"
+immich-clip-profile = "immich_clip.profile:main"
+immich-clip-backfill = "immich_clip.backfill:main"
+immich-clip-drain = "immich_clip.drain:main"
+immich-clip-doctor = "immich_clip.doctor:main"
+
+[tool.setuptools.packages.find]
+where = [ "src" ]
+include = [ "immich_clip*" ]
+
+[tool.pytest.ini_options]
+testpaths = [ "tests" ]
+# So a bare `pytest` finds immich_clip without an install or a PYTHONPATH export.
+pythonpath = [ "src", "tests" ]
+markers = [
+  "integration: needs a live Immich + Postgres (see tests/integration/README.md)",
+  "contract: asserts Immich's internal schema still matches (needs a live Postgres)",
+]
