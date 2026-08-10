@@ -13,7 +13,6 @@ stays offline. See README.md in this directory for the compose harness.
 
 import os
 import subprocess
-import sys
 import time
 import uuid
 from pathlib import Path
@@ -204,5 +203,3 @@ def wait_for(predicate, timeout=30, interval=0.5):
         time.sleep(interval)
     return None
 
-
-sys.path.insert(0, str(Path(__file__).parent))

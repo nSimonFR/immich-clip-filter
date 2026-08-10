@@ -10,7 +10,7 @@ database, an embedding that never arrives all have to come back as a clean
 import json
 
 import pytest
-from fakes import ALBUM, ASSET, OTHER, FakeConn, FakeCursor, FakeOpener, json_reply, settings
+from fakes import ASSET, OTHER, FakeConn, FakeCursor, FakeOpener, json_reply, settings
 
 from immich_clip import api, backfill, profile, queue, store, vectors
 from immich_clip.config import load

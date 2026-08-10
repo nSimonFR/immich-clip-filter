@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from immich_clip import backfill, drain, exclusions, queue, store
+from immich_clip import backfill, drain, exclusions, queue
 from immich_clip.config import ApiKey
 
 # Unit vectors on a circle. cos distance = 1 - cos(angle), so:
@@ -113,8 +113,6 @@ def test_the_threshold_is_read_against_the_nearest_seed_not_their_average(
     scoring matches and nearest scoring does not. That is the whole reason the two
     modes exist, and it is why a threshold does not carry between them.
     """
-    from immich_clip.config import Settings
-
     a, b = seeds["assetIds"]
     embed(a, NORTH)
     embed(b, EAST)

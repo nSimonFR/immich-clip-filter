@@ -8,8 +8,7 @@ kind of failure that only shows up when someone adds the second suite.
 
 import pytest
 
-from fakes import ALBUM, ASSET, OTHER, FakeConn, FakeCursor, FakeOpener, FakeResponse  # noqa: F401
-from fakes import json_reply, settings  # noqa: F401
+from fakes import FakeOpener
 
 
 @pytest.fixture

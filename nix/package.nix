@@ -15,7 +15,17 @@ python3Packages.buildPythonPackage {
            || lib.hasPrefix "dist" rel || lib.hasPrefix "docker" rel);
   };
 
-  nativeBuildInputs = [ python3Packages.setuptools ];
+  nativeBuildInputs = [
+    python3Packages.setuptools
+    python3Packages.pythonRelaxDepsHook
+  ];
+
+  # pyproject.toml asks for `psycopg2-binary`, which is the right answer for pip
+  # and for the Docker image: it ships wheels, so nobody needs libpq headers and a
+  # compiler to install this. Nix has no such attribute — the prebuilt wheel would
+  # be a broken binary here anyway — so the dependency is dropped by name and the
+  # real `psycopg2` supplied instead. Same module, same import.
+  pythonRemoveDeps = [ "psycopg2-binary" ];
   propagatedBuildInputs = [ python3Packages.psycopg2 ];
   nativeCheckInputs = [ python3Packages.pytestCheckHook ];
 

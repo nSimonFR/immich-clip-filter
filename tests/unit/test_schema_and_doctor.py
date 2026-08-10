@@ -136,7 +136,8 @@ def a_healthy_immich():
 
 
 def a_healthy_db():
-    return FakeConn(FakeCursor([ALL_COLUMNS, [(0.5,)], [("[1,0]",)], [(100,)], [(100,)]]))
+    # probe (3), then: images with no embedding, images total.
+    return FakeConn(FakeCursor([ALL_COLUMNS, [(0.5,)], [("[1,0]",)], [(0,)], [(100,)]]))
 
 
 def test_a_healthy_install_reports_no_problems(tmp_path):
@@ -176,10 +177,26 @@ def test_an_unembedded_tail_is_reported_because_it_can_never_match(tmp_path):
     # Immich never re-queues missing CLIP embeddings on its own, so a library can
     # sit with a large unembedded tail indefinitely and no rule will ever fire.
     cfg = settings(api_key="k", state_dir=str(tmp_path))
-    db = FakeConn(FakeCursor([ALL_COLUMNS, [(0.5,)], [("[1,0]",)], [(50,)], [(2125,)]]))
+    db = FakeConn(FakeCursor([ALL_COLUMNS, [(0.5,)], [("[1,0]",)], [(2075,)], [(5535,)]]))
     out = []
     assert doctor.run(cfg, connect=lambda c: db, opener=a_healthy_immich(), out=out.append) == 1
-    assert any("2075 images have no embedding" in line for line in out)
+    assert any("2075 of 5535 images have no embedding" in line for line in out)
+
+
+def test_the_unembedded_count_is_an_anti_join_not_a_subtraction(tmp_path):
+    """Found by running it against a real library, which said "6113 of 5535".
+
+    Immich embeds videos as well as photos, so `count(smart_search)` and
+    `count(images)` are different populations. Subtracting them can go negative
+    and report a healthy library while a real backlog sits underneath.
+    """
+    cfg = settings(api_key="k", state_dir=str(tmp_path))
+    # More smart_search rows than images would exist in reality; what the doctor
+    # asks for now is the images that have NO row, which is 0 here.
+    db = FakeConn(FakeCursor([ALL_COLUMNS, [(0.5,)], [("[1,0]",)], [(0,)], [(5535,)]]))
+    out = []
+    assert doctor.run(cfg, connect=lambda c: db, opener=a_healthy_immich(), out=out.append) == 0
+    assert any("all 5535 images embedded" in line for line in out)
 
 
 def test_an_unreachable_database_is_reported_not_raised(tmp_path):
@@ -191,3 +208,23 @@ def test_an_unreachable_database_is_reported_not_raised(tmp_path):
     out = []
     assert doctor.run(cfg, connect=refuse, opener=a_healthy_immich(), out=out.append) == 1
     assert any("cannot connect" in line for line in out)
+
+
+def test_the_doctor_survives_an_immich_it_cannot_reach_at_all(tmp_path):
+    """Found by running the built binary rather than the tests.
+
+    `ml_healthy` swallowed only SystemExit and NoKeyForOwner, but resolving the ML
+    URL goes through `/api/system-config` — which raises URLError when Immich is
+    down and HTTPError when the key is wrong. Either one escaped and took the
+    doctor with it, which is precisely the situation the doctor exists for.
+    """
+    class Refuse:
+        def __call__(self, req, timeout=None):
+            raise OSError("connection refused")
+
+    cfg = settings(api_key="k", state_dir=str(tmp_path))
+    out = []
+    rc = doctor.run(cfg, connect=lambda c: a_healthy_db(), opener=Refuse(), out=out.append)
+
+    assert rc == 1
+    assert any("ml server" in line and "unreachable" in line for line in out)

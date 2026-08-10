@@ -21,7 +21,6 @@ import os
 import pytest
 
 from immich_clip import backfill, exclusions, schema, store
-from immich_clip.config import Settings
 
 DSN = os.environ.get("IMMICH_CLIP_CONTRACT_DSN", "")
 

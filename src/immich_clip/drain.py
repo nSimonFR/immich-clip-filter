@@ -126,7 +126,6 @@ def run(cfg, connect=None, opener=None, queue_conn=None, now=None, log=log):
             decided += 1
             match = distance <= item["threshold"]
             wanted = exclusions.allowed(conn_q, item["assetId"], item["albumIds"])
-            note = ""
             if match and wanted:
                 if cfg.apply:
                     owner_id, email = asset_owner(cur, item["assetId"])
@@ -134,10 +133,10 @@ def run(cfg, connect=None, opener=None, queue_conn=None, now=None, log=log):
                         filed += file_into_albums(
                             cfg, wanted, item["assetId"], owner=email or owner_id)
                     except api.NoKeyForOwner as e:
-                        # Leave it queued: the next pass will retry, and once a
-                        # key for that owner is configured it files itself.
-                        note = f" — NOT filed: {e}"
-                        log(f"{item['assetId']}{note}")
+                        # Leave it queued: the next pass retries, and once a key
+                        # for that owner is configured it files itself. Dropping
+                        # it would mean the photo is never filed at all.
+                        log(f"{item['assetId']} d={distance:.4f} MATCH but NOT filed: {e}")
                         continue
                 else:
                     filed += 1  # counted, not written

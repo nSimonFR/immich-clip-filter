@@ -56,22 +56,35 @@ def check_database(cfg, connect=None):
             yield _ok("schema", f"all {len(schema.REQUIRED)} tables present, pgvector OK")
         except schema.SchemaMismatch as e:
             yield _bad("schema", str(e).splitlines()[0])
-        cur.execute("SELECT count(*) FROM smart_search")
-        embedded = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM asset WHERE \"deletedAt\" IS NULL AND type = 'IMAGE'")
-        images = cur.fetchone()[0]
         # The one number that predicts "my rule matches nothing": Immich never
         # re-queues missing CLIP embeddings on its own, so a library can sit with
         # a large unembedded tail indefinitely.
-        gap = images - embedded
-        (yield _ok("embeddings", f"{embedded} of {images} images embedded")) if gap <= 0 else (
+        #
+        # Counted as an anti-join rather than `count(smart_search)` vs
+        # `count(images)`. Immich embeds videos too, so on a real library the
+        # naive comparison reported "6113 of 5535 images embedded" — two
+        # populations subtracted from each other, and a gap that could go
+        # negative and hide a genuine backlog.
+        cur.execute(
+            'SELECT count(*) FROM asset a WHERE a."deletedAt" IS NULL '
+            "AND a.type = 'IMAGE' AND a.visibility NOT IN ('hidden', 'locked') "
+            'AND NOT EXISTS (SELECT 1 FROM smart_search s WHERE s."assetId" = a.id)'
+        )
+        missing_embeddings = cur.fetchone()[0]
+        cur.execute(
+            'SELECT count(*) FROM asset WHERE "deletedAt" IS NULL AND type = \'IMAGE\' '
+            "AND visibility NOT IN ('hidden', 'locked')"
+        )
+        images = cur.fetchone()[0]
+        if missing_embeddings == 0:
+            yield _ok("embeddings", f"all {images} images embedded")
+        else:
             yield _bad(
                 "embeddings",
-                f"{gap} images have no embedding — those can never match. "
-                "Run the drainer (it kicks Immich's smartSearch queue) or start "
-                "that job by hand.",
+                f"{missing_embeddings} of {images} images have no embedding — those "
+                "can never match. Run the drainer (it kicks Immich's smartSearch "
+                "queue) or start that job by hand.",
             )
-        )
     finally:
         conn.close()
 

@@ -99,7 +99,11 @@ def ml_healthy(cfg, opener=None):
     """
     try:
         url = ml_url(cfg, opener=opener)
-    except (SystemExit, NoKeyForOwner):
+    except (Exception, SystemExit):  # noqa: BLE001 - resolving the URL can fail
+        # for as many reasons as reaching it: Immich down, no key, none
+        # configured. All of them mean the same thing to every caller, and none
+        # of them may propagate — `immich-clip-doctor` crashed on exactly this
+        # when pointed at an Immich it had no key for.
         return False
     req = urllib.request.Request(f"{url}/ping")
     try:

@@ -8,7 +8,6 @@ it, files it, and asks Immich to embed the backlog it otherwise never retries.
 
 import json
 
-import pytest
 from fakes import ALBUM, ASSET, OTHER, FakeConn, FakeCursor, FakeOpener, FakeResponse, json_reply, settings
 
 from immich_clip import api, drain, exclusions, queue, store
