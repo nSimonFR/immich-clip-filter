@@ -104,6 +104,18 @@ updated in place.
 > using the plugin loses its steps and must have them recreated. Back the step
 > configs up first.
 
+**The same trap applies to the plugin's NAME.** A workflow step points at a
+`plugin_method` row belonging to one `plugin` row, keyed by name. Rename the
+plugin and Immich imports a second, separate one; the old row stops being loaded
+because it is no longer in the folder, and every existing step now references
+something that is not there. Each has to be deleted and recreated by hand.
+
+So an install migrating from an earlier build under a different name should keep
+that name rather than adopt the default — `pluginName` in the NixOS module, or
+`PLUGIN_NAME` for `plugin/build.sh`. Keeping the name *and* the version means the
+upsert matches on `(name, version)` and `wasmBytes` is simply updated in place,
+which is the only path that leaves existing workflows working.
+
 ### 3. Nested manifest schema properties require `title` and `description`
 
 In `dtos/json-schema.dto.js` only the top level makes them optional. A property

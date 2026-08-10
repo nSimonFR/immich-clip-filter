@@ -22,6 +22,7 @@ let
   plugin = pkgs.callPackage ../nix/plugin.nix {
     src = ../plugin;
     inherit sidecarUrl;
+    inherit (cfg) pluginName;
   };
 
   configFile = (pkgs.formats.toml { }).generate "immich-clip.toml" {
@@ -165,6 +166,25 @@ in
       description = ''
         Point Immich's plugin folder at the built wasm and switch external
         plugins on. Turn off if you install the plugin some other way.
+      '';
+    };
+
+    pluginName = mkOption {
+      type = types.str;
+      default = "clip-filter";
+      description = ''
+        The name Immich registers the plugin under.
+
+        ⚠️ **Changing this on a working install orphans every workflow that uses
+        it.** A workflow step points at a `plugin_method` row belonging to one
+        `plugin` row, keyed by name — so under a new name Immich imports a second,
+        separate plugin, the old one stops being loaded (it is no longer in the
+        folder), and every existing step references something that is not there.
+        Each one has to be deleted and recreated by hand.
+
+        Set it only to *keep* an existing name across a migration — for example an
+        install that ran an earlier build under its own name. Back the step
+        configs up first either way; see docs/limitations.md.
       '';
     };
   };
