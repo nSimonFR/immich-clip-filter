@@ -140,6 +140,14 @@ class Immich:
             "POST", "/api/assets", raw=b"".join(parts),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
         assert status in (200, 201), (status, body)
+        # ⚠️ Immich dedupes by checksum and answers `duplicate` with the id of the
+        # asset it already had. Returning that silently hands the test a DIFFERENT
+        # photo than it thinks it uploaded — which is how a "far away" fixture
+        # ended up being one of the seed photos. Fail loudly instead.
+        assert body.get("status") != "duplicate", (
+            f"Immich deduplicated this upload and returned an existing asset "
+            f"({body['id']}). Fixture images must have unique bytes — see "
+            f"a_unique_png() in conftest.")
         return body["id"]
 
     def create_album(self, name, asset_ids=()):

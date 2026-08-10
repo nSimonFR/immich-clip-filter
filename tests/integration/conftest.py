@@ -12,6 +12,7 @@ stays offline. See README.md in this directory for the compose harness.
 """
 
 import os
+import random
 import subprocess
 import time
 import uuid
@@ -28,13 +29,32 @@ ADMIN_PASSWORD = os.environ.get("IMMICH_CLIP_IT_PASSWORD", "integration-password
 
 pytestmark = pytest.mark.integration
 
-# A 1x1 PNG. The content is irrelevant — no inference runs, and the embeddings
-# are inserted by hand — but Immich insists on a decodable image.
-PNG_1X1 = bytes.fromhex(
-    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
-    "1f15c4890000000d49444154789c6360000002000100ffff0300000600"
-    "05570b6b0000000049454e44ae426082"
-)
+def a_unique_png():
+    """A 1x1 PNG whose BYTES differ every time.
+
+    ⚠️ Not decoration. Immich deduplicates uploads by checksum: POST /api/assets
+    with bytes it already has returns `status: "duplicate"` and the id of the
+    EXISTING asset. With one shared fixture image, every `upload()` in the suite
+    returned the same asset — so a photo staged as "far away" was literally one of
+    the seed photos, scored 0.0, and the two negative tests failed while every
+    positive one passed.
+
+    A random pixel colour is enough to change the checksum, and keeps the file a
+    real decodable PNG (Immich rejects anything else).
+    """
+    import binascii
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF))
+
+    pixel = bytes(random.randrange(256) for _ in range(3))
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)   # 1x1, 8-bit RGB
+    idat = zlib.compress(b"\x00" + pixel)                 # filter byte + pixel
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
 
 
 HERE = Path(__file__).parent
@@ -111,7 +131,7 @@ def image(tmp_path):
     """A factory for uploadable 1x1 PNGs with distinct names."""
     def make(name="fixture"):
         p = tmp_path / f"{name}-{uuid.uuid4().hex[:8]}.png"
-        p.write_bytes(PNG_1X1)
+        p.write_bytes(a_unique_png())
         return str(p)
     return make
 
