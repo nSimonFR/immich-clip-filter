@@ -78,6 +78,12 @@ jobs:
         # file would pull it and fail somewhere less obvious. `--help` exercises
         # the entry point, the console script and the imports without needing an
         # Immich to talk to.
+        #
+        # ⚠️ Lowercased explicitly. `github.repository_owner` is `nSimonFR`, and
+        # Docker refuses a mixed-case repository name — `docker/metadata-action`
+        # silently lowercases it for the tags it pushes, so the push succeeded
+        # while this step failed with `invalid reference format`. Do not
+        # interpolate the owner into a docker ref without this.
         run: |
-          docker run --rm --entrypoint immich-clip-doctor \
-            ${{ env.IMAGE }}:latest --help
+          image=$(echo "${{ env.IMAGE }}" | tr '[:upper:]' '[:lower:]')
+          docker run --rm --entrypoint immich-clip-doctor "$image:latest" --help
